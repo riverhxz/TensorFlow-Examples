@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import sys
-from six.moves import cPickle
+# from six.moves import cPickle
 import h5py as h5
 import codecs
 
@@ -11,124 +11,100 @@ f_data_head = '/Users/hehehe/PycharmProjects/keras/myworkspace/testdata/xx_head.
 
 data_file="/tmp/data/np/sample.h5"
 encoding = 'utf-8'
-def load_data(path=data_file, nb_words=None, skip_top=0,
-              maxlen=None, test_split=0.2, seed=113,
-              end_char=1, oov_char=2, index_from=3):
-    data = h5.File(path)
+class SampleTransform(object):
 
+    def load_data(self, path=data_file, nb_words=None, skip_top=0,
+                  maxlen=None, test_split=0.2, seed=113,
+                  end_char=1, oov_char=2, index_from=3):
+        data = h5.File(path)
+        return data
 
-    return data
+    def __init__(self, input_fn='/home/hehehe/data/app.1m', max_seq_lenth=20, output_dir='/home/hehehe/data/', output_fn='sample.h5', start=0 ,end=None):
+        self.input_fn = input_fn
+        self.max_seq_lenth = max_seq_lenth
 
-    # Y = [[w + index_from for w in x] + [end_char] for x in Y]
-    #
-    # if not nb_words:
-    #     nb_words = max([max(x) for x in X])
-    #
-    # if not maxlen:
-    #     maxlen = max(map(len, Y))
-    #
-    # Y = [[oov_char if (w >= nb_words or w < skip_top) else w for w in x] for x in Y]
-    #
-    # X_train = X[:int(len(X) * (1 - test_split))]
-    # y_train = Y[:int(len(X) * (1 - test_split))]
-    #
-    # X_test = X[int(len(X) * (1 - test_split)):]
-    # y_test = Y[int(len(X) * (1 - test_split)):]
-    #
-    # return (X_train, y_train), (X_test, y_test)
+        self.start = start
+        self.end = end
+        self.num_sample = end - start if end != None else None
+        self.output_dir = output_dir
+        self.output_fn = output_fn
+        self.internal_id = 0
+        self.int_type = "int32"
+        self.float_type = "float32"
+        self.line_num = -1
+    def process(self, ):
+        self.internal_id = 0
+        seed = 47
+        f = codecs.open(self.input_fn,'r', encoding)
+        start_of_word = 3
 
-def process(max_seq_lenth=20):
-    args = ["/private/tmp/data/spark/data_text/part-00000"]
-    filename = args[0]
-    seed = 47
-    f = codecs.open(filename,'r', encoding)
-    ids = []
-    start_of_word = 3
-    y = []
-    cookie_set = []
-    local_set = []
-    cate_set = []
-    word_set = []
-    word_len_set = []
-    conf = {"y":y, "cookie":cookie_set, "local":local_set, "cate":cate_set, "word_len":word_len_set}
-    df = h5.File("/tmp/data/np/sample.h5", "w")
+        y = np.zeros(self.num_sample, self.float_type)
+        cookie_set = np.zeros(self.num_sample, dtype=self.int_type)
+        local_set = np.zeros(self.num_sample, dtype=self.int_type)
+        cate_set = np.zeros(self.num_sample, dtype=self.int_type)
+        word_set = np.zeros((self.num_sample, self.max_seq_lenth), dtype=self.int_type)
+        word_len_set = np.zeros(self.num_sample, dtype=self.int_type)
+        conf = {"y":y, "cookie":cookie_set, "local":local_set, "cate":cate_set, "word_len":word_len_set}
+        df = h5.File(self.output_dir + '/' + self.output_fn, "w")
 
-    def shuffle(x):
-        np.random.seed(seed)
-        np.random.shuffle(x)
+        def shuffle(x):
+            np.random.seed(seed)
+            np.random.shuffle(x)
 
-    def save(data, name):
-        d = np.asarray(data,dtype="int32")
-        shuffle(d)
-        df.create_dataset(data=d, name=name)
+        def save(data, name):
+            # d = np.asarray(data,dtype="int32")
+            data=data[:self.internal_id]
+            shuffle(data)
+            df.create_dataset(data=data, name=name)
 
-    def collect(t5):
-        click, cookie, local, cate, word = t5
-        y.append(click)
-        cookie_set.append(cookie)
-        local_set.append(local)
-        cate_set.append(cate)
-        word_set.append(word)
-        word_len_set.append(min(len(word), max_seq_lenth))
+        def collect(t5):
+            click, cookie, local, cate, word = t5
+            y[self.internal_id] = click
+            cookie_set[self.internal_id] = cookie
+            local_set[self.internal_id] = local
+            cate_set[self.internal_id] = cate
+            lenx = min(len(word),self.max_seq_lenth)
+            word_set[self.internal_id, :lenx] = word[:lenx]
+            word_len_set[self.internal_id] = lenx
 
-    def parseText(line):
-        fs = line.strip().split("\t")
-        if len(fs) < 5:
-            return None
-        else:
-            click, cookie, local, cate, word = fs
-            word = map(lambda x: int(x) + start_of_word, word.split(","))
-            if len(word) < 1:
+            self.internal_id += 1
+
+        def parseText(line):
+            fs = line.strip().split("\t")
+            if len(fs) < 5:
                 return None
             else:
-                return click, cookie, local, cate, word
+                click, cookie, local, cate, word = fs
+                word = map(lambda x: int(x) + start_of_word, word.split(","))
+                if len(word) < 1:
+                    return None
+                else:
+                    return click, cookie, local, cate, word
 
-    for line in f:
-        t5 = parseText(line.strip())
-        if t5 == None:
-            continue
-        collect(t5)
+        for line in f:
+            if self.num_sample is not None and self.num_sample == self.internal_id:
+                break
+            self.line_num += 1
+            if self.start > self.line_num:
+                continue
 
-    map(lambda (k, v) : save(v, k), conf.iteritems())
+            t5 = parseText(line.strip())
+            if t5 == None:
+                continue
+            collect(t5)
 
-    wordmx = np.zeros((len(word_set), max_seq_lenth),"int32")
-    for i in range(len(word_set)):
-        ll = min(max_seq_lenth, len(word_set[i]))
-        wordmx[i,:ll] = word_set[i][:ll]
+        map(lambda (k, v) : save(v, k), conf.iteritems())
 
-    shuffle(wordmx)
-    df.create_dataset("word",data=wordmx)
+        wordmx = np.zeros((self.internal_id, self.max_seq_lenth),"int32")
+        for i in range(len(word_set)):
+            ll = min(self.max_seq_lenth, len(word_set[i]))
+            wordmx[i,:ll] = word_set[i][:ll]
 
-    df.close()
-
-def checkIndice():
-    f = open(f_indice , 'rb')
-    indices = cPickle.load(f)
-    x,y = cPickle.load(open(f_data_head, 'rb'))
-    id_local, id_cate, id_cookie, word2id = indices
-
-    cvt = {v: k for k, v in word2id.iteritems()}
-    for one in y:
-        print str(map(lambda x: cvt[x], one[3]))
-
-def sample2words(x, index_from=3, f_indice=f_indice):
-    x = x - index_from
-    f = open(f_indice)
-    indices = cPickle.load(f)
-    cvt = indices[3]
-    cvt = {y:x for x,y in cvt.iteritems()}
-    NOT_WORD='-'
-    return [''.join(map(lambda xx: cvt[xx] if xx in cvt else NOT_WORD, ll)) for ll in x.tolist()]
-
-def sample2topwords(x, index_from=3, f_indice=f_indice):
-    x = x - index_from
-    f = open(f_indice)
-    indices = cPickle.load(f)
-    cvt = indices[3]
-    cvt = {y:x for x,y in cvt.iteritems()}
-    NOT_WORD='-'
-    return [''.join(map(lambda xx: cvt[xx] if xx in cvt else NOT_WORD, ll)) for ll in x.tolist()]
-
+        shuffle(wordmx)
+        df.create_dataset("word",data=wordmx)
+        print("sample num:{:d}".format(len(y)))
+        df.close()
 
 if __name__ == '__main__':
-    process()
+    #process(input_fn='/home/hehehe/data/data_1d', limit=50000000,  output_fn='sample.50m.h5')
+    SampleTransform(input_fn='/home/hehehe/data/data_1d', start=0, end=25000000,  output_fn='sample.25m.h5').process()
